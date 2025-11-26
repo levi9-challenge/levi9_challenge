@@ -16,7 +16,8 @@ const mockMulti = jest.fn(() => ({
 const mockRedisClient = {
     multi: mockMulti,
     incr: jest.fn(),
-    hGetAll: jest.fn()
+    hGetAll: jest.fn(),
+    keys: jest.fn()
 };
 
 // Mock canteen service
@@ -32,7 +33,7 @@ jest.unstable_mockModule('./canteenService.js', () => ({
 }));
 
 // Import after mocking
-const { createReservation, deleteReservation } = await import('./reservactionService.js');
+const { createReservation, deleteReservation, getReservationsByStudent } = await import('./reservactionService.js');
 
 describe('reservactionService', () => {
     const mockCanteen = {
@@ -315,6 +316,126 @@ describe('reservactionService', () => {
             const result = await deleteReservation('1', '42');
 
             expect(result).toBeNull();
+        });
+    });
+
+    describe('getReservationsByStudent', () => {
+        const mockReservations = {
+            'reservation:1': {
+                id: '1',
+                studentId: '42',
+                canteenId: '1',
+                date: '2025-12-10',
+                time: '08:00',
+                duration: '30',
+                status: 'Active'
+            },
+            'reservation:2': {
+                id: '2',
+                studentId: '42',
+                canteenId: '1',
+                date: '2025-12-15',
+                time: '09:00',
+                duration: '60',
+                status: 'Active'
+            },
+            'reservation:3': {
+                id: '3',
+                studentId: '42',
+                canteenId: '2',
+                date: '2025-12-15',
+                time: '08:00',
+                duration: '30',
+                status: 'Cancelled'
+            },
+            'reservation:4': {
+                id: '4',
+                studentId: '99', // Different student
+                canteenId: '1',
+                date: '2025-12-15',
+                time: '08:30',
+                duration: '30',
+                status: 'Active'
+            }
+        };
+
+        beforeEach(() => {
+            mockRedisClient.keys.mockResolvedValue([
+                'reservation:id:counter',
+                'reservation:1',
+                'reservation:2',
+                'reservation:3',
+                'reservation:4'
+            ]);
+            mockRedisClient.hGetAll.mockImplementation((key) => {
+                return Promise.resolve(mockReservations[key] || {});
+            });
+        });
+
+        it('should return reservations within date range for student', async () => {
+            const result = await getReservationsByStudent('42', '2025-12-01', '2025-12-31');
+
+            expect(result).toHaveLength(3); // 3 reservations for student 42
+            expect(result.every(r => r.studentId === 42)).toBe(true);
+        });
+
+        it('should filter out reservations outside date range', async () => {
+            const result = await getReservationsByStudent('42', '2025-12-14', '2025-12-16');
+
+            expect(result).toHaveLength(2); // Only reservations on 2025-12-15
+            expect(result.every(r => r.date === '2025-12-15')).toBe(true);
+        });
+
+        it('should return empty array when no reservations match', async () => {
+            const result = await getReservationsByStudent('42', '2026-01-01', '2026-01-31');
+
+            expect(result).toHaveLength(0);
+        });
+
+        it('should return empty array when student has no reservations', async () => {
+            const result = await getReservationsByStudent('999', '2025-12-01', '2025-12-31');
+
+            expect(result).toHaveLength(0);
+        });
+
+        it('should sort reservations by date and time', async () => {
+            const result = await getReservationsByStudent('42', '2025-12-01', '2025-12-31');
+
+            // Should be sorted: 12-10 08:00, 12-15 08:00, 12-15 09:00
+            expect(result[0].date).toBe('2025-12-10');
+            expect(result[1].date).toBe('2025-12-15');
+            expect(result[1].time).toBe('08:00');
+            expect(result[2].date).toBe('2025-12-15');
+            expect(result[2].time).toBe('09:00');
+        });
+
+        it('should skip the counter key (no WRONGTYPE error)', async () => {
+            // The keys include 'reservation:id:counter' which should be skipped
+            const result = await getReservationsByStudent('42', '2025-12-01', '2025-12-31');
+
+            // Should not throw and should return valid results
+            expect(result).toHaveLength(3);
+            // hGetAll should not be called with the counter key
+            expect(mockRedisClient.hGetAll).not.toHaveBeenCalledWith('reservation:id:counter');
+        });
+
+        it('should throw error when startDate is missing', async () => {
+            await expect(getReservationsByStudent('42', null, '2025-12-31'))
+                .rejects.toThrow('startDate and endDate are required');
+        });
+
+        it('should throw error when endDate is missing', async () => {
+            await expect(getReservationsByStudent('42', '2025-12-01', null))
+                .rejects.toThrow('startDate and endDate are required');
+        });
+
+        it('should parse numeric fields correctly', async () => {
+            const result = await getReservationsByStudent('42', '2025-12-01', '2025-12-31');
+
+            expect(typeof result[0].id).toBe('number');
+            expect(typeof result[0].studentId).toBe('number');
+            expect(typeof result[0].canteenId).toBe('number');
+            expect(typeof result[0].duration).toBe('number');
         });
     });
 });
