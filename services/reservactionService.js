@@ -176,6 +176,43 @@ export async function createReservation(reservationData) {
         status: 'Active' };
 }
 
+export async function getReservationsByStudent(studentId, startDate, endDate) {
+    if (!startDate || !endDate) {
+        throw new Error('startDate and endDate are required');
+    }
+    const keys = await redisClient.keys('reservation:*');
+    const reservations = [];
+    for (const key of keys) {
+        // Skip the counter key
+        if (key === RESERVATION_COUNTER_KEY) continue;
+        const reservation = await redisClient.hGetAll(key);
+        if (reservation.studentId === String(studentId)) {
+            // Filter by date range
+            const resDate = reservation.date;
+            if (resDate >= startDate && resDate <= endDate) {
+                reservations.push({
+                    id: parseInt(reservation.id, 10),
+                    studentId: parseInt(reservation.studentId, 10),
+                    canteenId: parseInt(reservation.canteenId, 10),
+                    date: reservation.date,
+                    time: reservation.time,
+                    duration: parseInt(reservation.duration, 10),
+                    status: reservation.status
+                });
+            }
+        }
+    }
+
+    // Sort by date and time
+    reservations.sort((a, b) => {
+        if (a.date !== b.date) {
+            return a.date.localeCompare(b.date);
+        }
+        return a.time.localeCompare(b.time);
+    });
+    return reservations;
+}
+
 export async function deleteReservation(reservationId, studentId) {
     const reservationKey = `reservation:${reservationId}`;
     const reservation = await redisClient.hGetAll(reservationKey);

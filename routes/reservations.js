@@ -1,8 +1,21 @@
 import express from 'express';
-import { createReservation, deleteReservation } from '../services/reservactionService.js';
+import { createReservation, deleteReservation, getReservationsByStudent } from '../services/reservactionService.js';
 
 const router = express.Router();
 
+router.get('/', async (req, res) => {
+    try {
+        const studentId = req.headers['studentid'];
+        const { startDate, endDate } = req.query;
+        if (!studentId) {
+            return res.status(400).json({ error: 'Missing studentId header' });
+        }
+        const reservations = await getReservationsByStudent(studentId, startDate, endDate);
+        res.status(200).json(reservations);
+    } catch (err) {
+        res.status(500).json({ error: err.message });
+    }
+});
 router.post('/', async (req, res) => {
     try {
         const reservation = await createReservation(req.body);
