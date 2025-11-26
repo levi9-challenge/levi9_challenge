@@ -147,7 +147,3 @@ curl -X POST http://localhost:3000/reservations \
   -H "Content-Type: application/json" \
   -d '{"studentId": "1", "canteenId": "1", "date": "2025-12-01", "time": "08:00", "duration": "30"}'
 ```
-
-## License
-
-ISC
