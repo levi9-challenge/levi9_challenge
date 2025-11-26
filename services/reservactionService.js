@@ -26,6 +26,25 @@ function getAffectedSlotKeys(canteenId, date, time, duration) {
 }
 
 /**
+ * Get the GLOBAL student slot keys (no canteenId - prevents booking same time at any canteen)
+ */
+function getStudentSlotKeys(date, time, duration) {
+    const keys = [];
+    const slotKey = `studentSlot:${date}:${time}`;
+    keys.push(slotKey);
+
+    if (parseInt(duration) === 60) {
+        const [hours, minutes] = time.split(':').map(Number);
+        const nextMinutes = minutes + 30;
+        const nextHours = hours + Math.floor(nextMinutes / 60);
+        const nextTime = `${String(nextHours).padStart(2, '0')}:${String(nextMinutes % 60).padStart(2, '0')}`;
+        keys.push(`studentSlot:${date}:${nextTime}`);
+    }
+
+    return keys;
+}
+
+/**
  * Check if a time falls within a meal period
  */
 function isTimeInMealPeriod(workingHours, time) {
@@ -64,7 +83,7 @@ function isValidReservationTime(workingHours, time, duration) {
 }
 
 export async function createReservation(reservationData) {
-    const { canteenId, date, time, duration } = reservationData;
+    const { canteenId, date, time, duration, studentId } = reservationData;
 
     // Fetch canteen to get capacity and workingHours
     const canteen = await getCanteen(canteenId);
@@ -85,6 +104,7 @@ export async function createReservation(reservationData) {
     }
 
     const slotKeys = getAffectedSlotKeys(canteenId, date, time, duration);
+    const studentSlotKeys = getStudentSlotKeys(date, time, duration);
     const capacity = canteen.capacity;
 
     // Use transaction to check capacity and create reservation atomically
@@ -95,13 +115,26 @@ export async function createReservation(reservationData) {
         multi.get(key);
     }
 
-    const currentCounts = await multi.exec();
+    // Check if student already has reservation in any affected time slot (globally)
+    for (const key of studentSlotKeys) {
+        multi.sIsMember(key, String(studentId));
+    }
 
-    // Check if all slots have capacity
+    const results = await multi.exec();
+
+    // Check if all slots have capacity, first N results are slot counts
     for (let i = 0; i < slotKeys.length; i++) {
-        const count = parseInt(currentCounts[i] || '0', 10);
+        const count = parseInt(results[i] || '0', 10);
         if (count >= capacity) {
             throw new Error(`Slot ${slotKeys[i]} is fully booked`);
+        }
+    }
+    // Check if student already has reservation in any affected time slot (globally)
+    // Next N results are student slot membership checks
+    for (let i = 0; i < studentSlotKeys.length; i++) {
+        const isMember = results[slotKeys.length + i];
+        if (isMember) {
+            throw new Error('Student already has a reservation for this time slot');
         }
     }
 
@@ -121,24 +154,14 @@ export async function createReservation(reservationData) {
         status: 'Active',
         createdAt: new Date().toISOString()
     });
-    /*
-    console.log('Creating reservation with key:', reservationKey);
-    console.log('Affected slot keys:', slotKeys);
-    console.log('Current slot counts:', currentCounts);
-    console.log('Creating reservation with data:', {
-        id: parseInt(id, 10),
-        studentId: parseInt(reservationData.studentId, 10),
-        canteenId: parseInt(canteenId, 10),
-        date: date,
-        time: time,
-        duration: duration.toString(),
-        status: 'Active',
-        createdAt: new Date().toISOString()
-    });*/
 
     // Increment all affected slot counters
     for (const key of slotKeys) {
         createMulti.incr(key);
+    }
+    // Add student to global slot sets
+    for (const key of studentSlotKeys) {
+        createMulti.sAdd(key, String(studentId));
     }
 
     await createMulti.exec();
@@ -173,7 +196,13 @@ export async function deleteReservation(reservationId, studentId) {
         reservation.duration
     );
 
-    // Use transaction to cancel reservation and decrement slot counters
+    const studentSlotKeys = getStudentSlotKeys(
+        reservation.date,
+        reservation.time,
+        reservation.duration
+    );
+
+    // Use transaction to cancel reservation, decrement slot counters and remove student from sets
     const multi = redisClient.multi();
 
     multi.hSet(reservationKey, 'status', 'Cancelled');
@@ -181,6 +210,11 @@ export async function deleteReservation(reservationId, studentId) {
     // Decrement all affected slot counters
     for (const key of slotKeys) {
         multi.decr(key);
+    }
+
+    // Remove student from global slot sets
+    for (const key of studentSlotKeys) {
+        multi.sRem(key, String(studentId));
     }
 
     await multi.exec();

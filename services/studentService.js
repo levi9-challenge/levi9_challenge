@@ -9,6 +9,12 @@ export async function createStudent(studentData) {
     if (existingId) {
         throw new Error('Email already in use');
     }
+    // validate email format
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(studentData.email)) {
+        throw new Error('Invalid email format');
+    }
+    // Should continue with ZeroBounce or similar email validation service in production
 
     const id = await redisClient.incr(STUDENT_COUNTER_KEY);
     const studentKey = `student:${id}`;
