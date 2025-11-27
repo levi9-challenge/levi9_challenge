@@ -18,6 +18,7 @@ A REST API server for managing university canteen reservations. Students can res
 | npm        | 11.5.2  |
 | Express    | 5.1.0   |
 | Redis      | 5.10.0 (client) |
+| Redis      | 6.0.16 (server) |
 | Jest       | 30.2.0  |
 
 ## Prerequisites
@@ -41,7 +42,7 @@ A REST API server for managing university canteen reservations. Students can res
 3. **Clone the repository**
    ```bash
    git clone https://github.com/aleksiye/levi9_challenge.git
-   cd levi9_challenge/server
+   cd levi9_challenge
    ```
 
 4. **Install dependencies**

@@ -82,13 +82,89 @@ function isValidReservationTime(workingHours, time, duration) {
     return true;
 }
 
+function validateReservationData(reservationData) {
+    const { studentId, canteenId, date, time, duration } = reservationData;
+
+    // Validate studentId
+    if (studentId === undefined || studentId === null) {
+        throw new Error('studentId is required');
+    }
+    const parsedStudentId = parseInt(studentId, 10);
+    if (isNaN(parsedStudentId) || parsedStudentId < 1) {
+        throw new Error('studentId must be a positive integer');
+    }
+
+    // Validate canteenId
+    if (canteenId === undefined || canteenId === null) {
+        throw new Error('canteenId is required');
+    }
+    const parsedCanteenId = parseInt(canteenId, 10);
+    if (isNaN(parsedCanteenId) || parsedCanteenId < 1) {
+        throw new Error('canteenId must be a positive integer');
+    }
+
+    // Validate date format (YYYY-MM-DD)
+    if (!date || typeof date !== 'string') {
+        throw new Error('date is required');
+    }
+    const dateRegex = /^\d{4}-\d{2}-\d{2}$/;
+    if (!dateRegex.test(date)) {
+        throw new Error('Invalid date format. Must be YYYY-MM-DD');
+    }
+    // Validate date is a real date
+    const parsedDate = new Date(date);
+    if (isNaN(parsedDate.getTime())) {
+        throw new Error('Invalid date');
+    }
+
+    // Validate time format (HH:mm)
+    if (!time || typeof time !== 'string') {
+        throw new Error('time is required');
+    }
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+    if (!timeRegex.test(time)) {
+        throw new Error('Invalid time format. Must be HH:mm');
+    }
+
+    // Validate duration
+    if (duration === undefined || duration === null) {
+        throw new Error('duration is required');
+    }
+    const parsedDuration = parseInt(duration, 10);
+    if (parsedDuration !== 30 && parsedDuration !== 60) {
+        throw new Error('duration must be 30 or 60');
+    }
+
+    // Validate 60-min slots start at even hours
+    if (parsedDuration === 60) {
+        const [, minutes] = time.split(':').map(Number);
+        if (minutes !== 0) {
+            throw new Error('60-minute reservations must start at even hours (e.g., 08:00, 09:00)');
+        }
+    }
+
+    return {
+        studentId: parsedStudentId,
+        canteenId: parsedCanteenId,
+        date,
+        time,
+        duration: parsedDuration
+    };
+}
+
 export async function createReservation(reservationData) {
-    const { canteenId, date, time, duration, studentId } = reservationData;
+    const { canteenId, date, time, duration, studentId } = validateReservationData(reservationData);
 
     // Fetch canteen to get capacity and workingHours
     const canteen = await getCanteen(canteenId);
     if (!canteen) {
         throw new Error('Canteen not found');
+    }
+    // Check if user exists
+    const studentKey = `student:${studentId}`;
+    const studentExists = await redisClient.exists(studentKey);
+    if (!studentExists) {
+        throw new Error('Student not found');
     }
     // Validate date is not in the past
     const today = new Date();

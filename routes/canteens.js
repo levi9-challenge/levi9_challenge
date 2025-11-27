@@ -3,6 +3,23 @@ import { createCanteen, getCanteen, getAllCanteens, updateCanteen, deleteCanteen
 
 const router = express.Router();
 
+function isValidationError(message) {
+    const validationPhrases = [
+        'is required',
+        'cannot be empty',
+        'cannot exceed',
+        'must be',
+        'Invalid',
+        'cannot overlap',
+        'At least one'
+    ];
+    return validationPhrases.some(phrase => message.includes(phrase));
+}
+
+function isPermissionError(message) {
+    return message.includes('Only admin');
+}
+
 router.post('/', async (req, res) => {
     try {
         const createdBy = req.headers['studentid'];
@@ -12,6 +29,12 @@ router.post('/', async (req, res) => {
         const canteen = await createCanteen({ ...req.body, createdBy });
         res.status(201).json(canteen);
     } catch (err) {
+        if (isValidationError(err.message)) {
+            return res.status(400).json({ error: err.message });
+        }
+        if (isPermissionError(err.message)) {
+            return res.status(403).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message });
     }
 });
@@ -84,6 +107,12 @@ router.put('/:id', async (req, res) => {
         if (!updatedCanteen) return res.status(404).json({ error: 'Canteen not found' });
         res.json(updatedCanteen);
     } catch (err) {
+        if (isValidationError(err.message)) {
+            return res.status(400).json({ error: err.message });
+        }
+        if (isPermissionError(err.message)) {
+            return res.status(403).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message });
     }
 });
@@ -98,6 +127,9 @@ router.delete('/:id', async (req, res) => {
         if (!success) return res.status(404).json({ error: 'Canteen not found' });
         res.status(204).end();
     } catch (err) {
+        if (isPermissionError(err.message)) {
+            return res.status(403).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message });
     }
 });

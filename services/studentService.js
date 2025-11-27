@@ -4,6 +4,21 @@ const STUDENT_COUNTER_KEY = 'student:id:counter';
 const STUDENT_EMAIL_INDEX = 'student:email:index';
 
 export async function createStudent(studentData) {
+    // Validate required fields exist
+    if (!studentData.name || typeof studentData.name !== 'string') {
+        throw new Error('Name is required');
+    }
+    if (!studentData.email || typeof studentData.email !== 'string') {
+        throw new Error('Email is required');
+    }
+    // Validate name length
+    const trimmedName = studentData.name.trim();
+    if (trimmedName.length < 1) {
+        throw new Error('Name cannot be empty');
+    }
+    if (trimmedName.length > 100) {
+        throw new Error('Name cannot exceed 100 characters');
+    }
     // check if email aleady exists
     const existingId = await redisClient.hGet(STUDENT_EMAIL_INDEX, studentData.email);
     if (existingId) {

@@ -186,23 +186,128 @@ async function checkAdminStudent(studentId) {
     }
 }
 
+function validateCanteenData(canteenData) {
+    // Validate name
+    if (!canteenData.name || typeof canteenData.name !== 'string') {
+        throw new Error('Name is required');
+    }
+    const trimmedName = canteenData.name.trim();
+    if (trimmedName.length < 1) {
+        throw new Error('Name cannot be empty');
+    }
+    if (trimmedName.length > 100) {
+        throw new Error('Name cannot exceed 100 characters');
+    }
+
+    // Validate location
+    if (!canteenData.location || typeof canteenData.location !== 'string') {
+        throw new Error('Location is required');
+    }
+    const trimmedLocation = canteenData.location.trim();
+    if (trimmedLocation.length < 1) {
+        throw new Error('Location cannot be empty');
+    }
+    if (trimmedLocation.length > 200) {
+        throw new Error('Location cannot exceed 200 characters');
+    }
+
+    // Validate capacity
+    if (canteenData.capacity === undefined || canteenData.capacity === null) {
+        throw new Error('Capacity is required');
+    }
+    const capacity = parseInt(canteenData.capacity, 10);
+    if (isNaN(capacity) || capacity < 1) {
+        throw new Error('Capacity must be a positive integer');
+    }
+    if (capacity > 10000) {
+        throw new Error('Capacity cannot exceed 10000');
+    }
+
+    // Validate workingHours
+    if (!canteenData.workingHours || !Array.isArray(canteenData.workingHours)) {
+        throw new Error('Working hours are required and must be an array');
+    }
+    if (canteenData.workingHours.length === 0) {
+        throw new Error('At least one working hours period is required');
+    }
+
+    const validMeals = ['breakfast', 'lunch', 'dinner'];
+    const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/; // HH:mm format
+
+    for (const period of canteenData.workingHours) {
+        // Validate meal name
+        if (!period.meal || typeof period.meal !== 'string') {
+            throw new Error('Each working hours period must have a meal name');
+        }
+        if (!validMeals.includes(period.meal.toLowerCase())) {
+            throw new Error(`Invalid meal type: ${period.meal}. Must be breakfast, lunch, or dinner`);
+        }
+
+        // Validate from time
+        if (!period.from || typeof period.from !== 'string') {
+            throw new Error('Each working hours period must have a from time');
+        }
+        if (!timeRegex.test(period.from)) {
+            throw new Error(`Invalid from time format: ${period.from}. Must be HH:mm`);
+        }
+
+        // Validate to time
+        if (!period.to || typeof period.to !== 'string') {
+            throw new Error('Each working hours period must have a to time');
+        }
+        if (!timeRegex.test(period.to)) {
+            throw new Error(`Invalid to time format: ${period.to}. Must be HH:mm`);
+        }
+
+        // Validate from < to
+        if (period.from >= period.to) {
+            throw new Error(`Working hours 'from' (${period.from}) must be before 'to' (${period.to})`);
+        }
+
+        // Validate minimum 30-min duration
+        const [fromHour, fromMin] = period.from.split(':').map(Number);
+        const [toHour, toMin] = period.to.split(':').map(Number);
+        const durationMinutes = (toHour * 60 + toMin) - (fromHour * 60 + fromMin);
+        if (durationMinutes < 30) {
+            throw new Error('Each working hours period must be at least 30 minutes');
+        }
+    }
+
+    // Check for overlapping periods
+    const sortedPeriods = [...canteenData.workingHours].sort((a, b) => a.from.localeCompare(b.from));
+    for (let i = 0; i < sortedPeriods.length - 1; i++) {
+        if (sortedPeriods[i].to > sortedPeriods[i + 1].from) {
+            throw new Error('Working hours periods cannot overlap');
+        }
+    }
+
+    return {
+        name: trimmedName,
+        location: trimmedLocation,
+        capacity: capacity,
+        workingHours: canteenData.workingHours,
+        createdBy: canteenData.createdBy
+    };
+}
+
 export async function createCanteen(canteenData) {
+    const validatedData = validateCanteenData(canteenData);
     const id = await redisClient.incr(CANTEEN_COUNTER_KEY);
     const canteenKey = `canteen:${id}`;
 
     // Chack if student creating the canteen is admin
-    await checkAdminStudent(canteenData.createdBy);
+    await checkAdminStudent(validatedData.createdBy);
 
     await redisClient.hSet(canteenKey, {
         id: id.toString(),
-        name: canteenData.name,
-        location: canteenData.location,
-        capacity: canteenData.capacity,
-        workingHours: JSON.stringify(canteenData.workingHours),
-        createdBy: canteenData.createdBy,
+        name: validatedData.name,
+        location: validatedData.location,
+        capacity: validatedData.capacity,
+        workingHours: JSON.stringify(validatedData.workingHours),
+        createdBy: validatedData.createdBy,
         createdAt: new Date().toISOString()
     });
-    const { createdBy, createdAt, ...publicData } = canteenData;
+    const { createdBy, createdAt, ...publicData } = validatedData;
     return { id, ...publicData };
 }
 
@@ -241,6 +346,116 @@ export async function getCanteen(id) {
     };
 }
 
+function validateCanteenUpdateData(updateData) {
+    const validated = {};
+
+    // Validate name if provided
+    if (updateData.name !== undefined) {
+        if (typeof updateData.name !== 'string') {
+            throw new Error('Name must be a string');
+        }
+        const trimmedName = updateData.name.trim();
+        if (trimmedName.length < 1) {
+            throw new Error('Name cannot be empty');
+        }
+        if (trimmedName.length > 100) {
+            throw new Error('Name cannot exceed 100 characters');
+        }
+        validated.name = trimmedName;
+    }
+
+    // Validate location if provided
+    if (updateData.location !== undefined) {
+        if (typeof updateData.location !== 'string') {
+            throw new Error('Location must be a string');
+        }
+        const trimmedLocation = updateData.location.trim();
+        if (trimmedLocation.length < 1) {
+            throw new Error('Location cannot be empty');
+        }
+        if (trimmedLocation.length > 200) {
+            throw new Error('Location cannot exceed 200 characters');
+        }
+        validated.location = trimmedLocation;
+    }
+
+    // Validate capacity if provided
+    if (updateData.capacity !== undefined) {
+        const capacity = parseInt(updateData.capacity, 10);
+        if (isNaN(capacity) || capacity < 1) {
+            throw new Error('Capacity must be a positive integer');
+        }
+        if (capacity > 10000) {
+            throw new Error('Capacity cannot exceed 10000');
+        }
+        validated.capacity = capacity;
+    }
+
+    // Validate workingHours if provided
+    if (updateData.workingHours !== undefined) {
+        if (!Array.isArray(updateData.workingHours)) {
+            throw new Error('Working hours must be an array');
+        }
+        if (updateData.workingHours.length === 0) {
+            throw new Error('At least one working hours period is required');
+        }
+
+        const validMeals = ['breakfast', 'lunch', 'dinner'];
+        const timeRegex = /^([01]\d|2[0-3]):([0-5]\d)$/;
+
+        for (const period of updateData.workingHours) {
+            if (!period.meal || typeof period.meal !== 'string') {
+                throw new Error('Each working hours period must have a meal name');
+            }
+            if (!validMeals.includes(period.meal.toLowerCase())) {
+                throw new Error(`Invalid meal type: ${period.meal}. Must be breakfast, lunch, or dinner`);
+            }
+
+            if (!period.from || typeof period.from !== 'string') {
+                throw new Error('Each working hours period must have a from time');
+            }
+            if (!timeRegex.test(period.from)) {
+                throw new Error(`Invalid from time format: ${period.from}. Must be HH:mm`);
+            }
+
+            if (!period.to || typeof period.to !== 'string') {
+                throw new Error('Each working hours period must have a to time');
+            }
+            if (!timeRegex.test(period.to)) {
+                throw new Error(`Invalid to time format: ${period.to}. Must be HH:mm`);
+            }
+
+            if (period.from >= period.to) {
+                throw new Error(`Working hours 'from' (${period.from}) must be before 'to' (${period.to})`);
+            }
+
+            const [fromHour, fromMin] = period.from.split(':').map(Number);
+            const [toHour, toMin] = period.to.split(':').map(Number);
+            const durationMinutes = (toHour * 60 + toMin) - (fromHour * 60 + fromMin);
+            if (durationMinutes < 30) {
+                throw new Error('Each working hours period must be at least 30 minutes');
+            }
+        }
+
+        const sortedPeriods = [...updateData.workingHours].sort((a, b) => a.from.localeCompare(b.from));
+        for (let i = 0; i < sortedPeriods.length - 1; i++) {
+            if (sortedPeriods[i].to > sortedPeriods[i + 1].from) {
+                throw new Error('Working hours periods cannot overlap');
+            }
+        }
+
+        validated.workingHours = JSON.stringify(updateData.workingHours);
+    }
+
+    // Return null if no valid fields provided
+    if (Object.keys(validated).length === 0) {
+        throw new Error('At least one field to update is required');
+    }
+
+    return validated;
+}
+
+
 export async function updateCanteen(id, updateData, updatedBy) {
     const canteenKey = `canteen:${id}`;
     await checkAdminStudent(updatedBy);
@@ -248,7 +463,8 @@ export async function updateCanteen(id, updateData, updatedBy) {
     if (Object.keys(existingCanteen).length === 0) {
         return null;
     }
-    const updatedCanteen = { ...existingCanteen, ...updateData };
+    const validatedData = validateCanteenUpdateData(updateData);
+    const updatedCanteen = { ...existingCanteen, ...validatedData };
     await redisClient.hSet(canteenKey, updatedCanteen);
     return updatedCanteen;
 }

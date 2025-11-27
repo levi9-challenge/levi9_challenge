@@ -3,6 +3,22 @@ import { createReservation, deleteReservation, getReservationsByStudent } from '
 
 const router = express.Router();
 
+function isValidationError(message) {
+    const validationPhrases = [
+        'is required',
+        'must be',
+        'Invalid',
+        'cannot be in the past',
+        'already has a reservation',
+        'fully booked'
+    ];
+    return validationPhrases.some(phrase => message.includes(phrase));
+}
+
+function isNotFoundError(message) {
+    return message.includes('not found');
+}
+
 router.get('/', async (req, res) => {
     try {
         const studentId = req.headers['studentid'];
@@ -21,6 +37,12 @@ router.post('/', async (req, res) => {
         const reservation = await createReservation(req.body);
         res.status(201).json(reservation);
     } catch (err) {
+        if (isNotFoundError(err.message)) {
+            return res.status(404).json({ error: err.message });
+        }
+        if (isValidationError(err.message)) {
+            return res.status(400).json({ error: err.message });
+        }
         res.status(500).json({ error: err.message });
     }
 });
